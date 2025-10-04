@@ -7,12 +7,15 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
-	"github.com/gofiber/fiber/v2"
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
 	"nasa-app/internal/db"
 	"nasa-app/internal/models"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 )
 
 var googleOauthConfig *oauth2.Config
@@ -133,19 +136,26 @@ func GoogleCallback(c *fiber.Ctx) error {
 		})
 	}
 
-	// Kullanıcı bilgisini döndür (TEST İÇİN)
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"success": true,
-		"message": "Login successful! 🎉",
-		"user": fiber.Map{
-			"id":        u.ID,
-			"name":      u.Name,
-			"email":     u.Email,
-			"googleID":  u.GoogleID,
-			"createdAt": u.CreatedAt,
-			"updatedAt": u.UpdatedAt,
-		},
-	})
+	// JWT token oluştur
+	token, err := generateJWTToken(u)
+	if err != nil {
+		log.Printf("❌ JWT token generation failed: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "token generation failed",
+		})
+	}
+
+	// Frontend'e yönlendir
+	frontendURL := os.Getenv("FRONTEND_REDIRECT_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3000" // Default frontend URL
+		log.Println("⚠️  FRONTEND_URI not set, using default:", frontendURL)
+	}
+
+	// Başarılı giriş sonrası frontend'e yönlendir (token ile)
+	redirectURL := fmt.Sprintf("%s/home?token=%s&login=success", frontendURL, token)
+	log.Printf("🔄 Redirecting to frontend: %s", redirectURL)
+	return c.Redirect(redirectURL)
 }
 
 // findOrCreateUser - Kullanıcıyı veritabanında bul veya oluştur
@@ -177,4 +187,33 @@ func findOrCreateUser(googleID, email, name string) (*models.User, error) {
 
 	log.Printf("✨ New user created: %s", email)
 	return &user, nil
+}
+
+// generateJWTToken - Kullanıcı için JWT token oluşturur
+func generateJWTToken(user *models.User) (string, error) {
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "your-secret-key" // Production'da mutlaka güvenli bir secret kullanın
+		log.Println("⚠️  JWT_SECRET not set, using default")
+	}
+
+	// Token claims
+	claims := jwt.MapClaims{
+		"user_id":   user.ID,
+		"email":     user.Email,
+		"name":      user.Name,
+		"google_id": user.GoogleID,
+		"exp":       time.Now().Add(time.Hour * 24).Unix(), // 24 saat geçerli
+		"iat":       time.Now().Unix(),
+	}
+
+	// Token oluştur
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString([]byte(jwtSecret))
+	if err != nil {
+		return "", err
+	}
+
+	log.Printf("🔑 JWT token generated for user: %s", user.Email)
+	return tokenString, nil
 }
