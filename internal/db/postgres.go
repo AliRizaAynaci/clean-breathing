@@ -1,41 +1,79 @@
 package db
 
 import (
-	"fmt"
 	"log"
+	"os"
+	"strings"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"nasa-app/internal/config"
-	"nasa-app/internal/models"
+	"gorm.io/gorm/logger"
 )
 
 var gormDB *gorm.DB
 
-func ConnectPostgres(cfg *config.Config) (*gorm.DB, error) {
-	dsn := fmt.Sprintf(
-		"host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=UTC",
-		cfg.PostgresHost, cfg.PostgresUser, cfg.PostgresPass, cfg.PostgresDB, cfg.PostgresPort,
-	)
+// Connect opens a DB connection and returns *gorm.DB
+func Connect(dsn string) (*gorm.DB, error) {
+	// SSL mode kontrolü - Heroku için otomatik ekle
+	if !strings.Contains(dsn, "sslmode=") {
+		if strings.Contains(dsn, "?") {
+			dsn += "&sslmode=require"
+		} else {
+			dsn += "?sslmode=require"
+		}
+		log.Println("🔒 SSL mode automatically enabled")
+	}
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	log.Println("📡 Connecting to database...")
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Info),
+	})
 	if err != nil {
+		log.Printf("❌ Database connection failed: %v", err)
 		return nil, err
 	}
 
-	// Migration
-	log.Println("Running migrations...")
-	if err := db.AutoMigrate(&models.User{}); err != nil {
+	// Connection test
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.Printf("❌ Failed to get database instance: %v", err)
 		return nil, err
 	}
 
+	if err := sqlDB.Ping(); err != nil {
+		log.Printf("❌ Database ping failed: %v", err)
+		return nil, err
+	}
+
+	// Global DB'yi set et - ÖNEMLİ!
 	gormDB = db
+
+	log.Println("✅ Database connected successfully!")
 	return db, nil
 }
 
-func GetDB() (*gorm.DB, error) {
-	if gormDB == nil {
-		return nil, fmt.Errorf("DB not initialized")
+// Migrate runs AutoMigrate for the given models
+func Migrate(db *gorm.DB, models ...interface{}) error {
+	// run only if MIGRATE_ON_START=true (env-toggled)
+	if os.Getenv("MIGRATE_ON_START") != "true" {
+		log.Println("⏭️  Skipping migrations (MIGRATE_ON_START != true)")
+		return nil
 	}
-	return gormDB, nil
+
+	log.Println("🔄 Running migrations...")
+
+	err := db.AutoMigrate(models...)
+	if err != nil {
+		log.Printf("❌ Migration failed: %v", err)
+		return err
+	}
+
+	log.Println("✅ Migrations completed successfully!")
+	return nil
+}
+
+// GetDB returns the global DB instance
+func GetDB() *gorm.DB {
+	return gormDB
 }

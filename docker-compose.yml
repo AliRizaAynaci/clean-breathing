@@ -3,35 +3,41 @@ version: "3.9"
 services:
   api:
     build: .
-    container_name: nasa-api
+    container_name: nasa-app
     ports:
       - "8080:8080"
-    depends_on:
-      - db
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=nasa
-      - POSTGRES_HOST=db
-      - POSTGRES_PORT=5432
-      - APP_PORT=8080
-      # Google OAuth - ÖNEMLİ: Bunları ekleyin
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - JWT_SECRET=your-super-secret-jwt-key-at-least-32-characters-long
+    restart: unless-stopped
 
-  db:
-    image: postgres:15
-    container_name: nasa-db
-    restart: always
+    env_file: .env
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: nasa
-    ports:
-      - "5432:5432"
-    volumes:
-      - dbdata:/var/lib/postgresql/data
+      # App config
+      PORT: ${PORT:-8080}
 
-volumes:
-  dbdata:
+      # Postgres (Heroku RDS)
+      DATABASE_URL: ${DATABASE_URL}
+
+      # OAuth & JWT
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      OAUTH_REDIRECT_URL: ${OAUTH_REDIRECT_URL}
+      JWT_SECRET: ${JWT_SECRET}
+
+      # Migrations
+      MIGRATE_ON_START: ${MIGRATE_ON_START:-true}
+
+# Local PostgreSQL (ihtiyacınız varsa uncomment edin)
+#  db:
+#    image: postgres:15
+#    container_name: nasa-db
+#    restart: always
+#    environment:
+#      POSTGRES_USER: postgres
+#      POSTGRES_PASSWORD: postgres
+#      POSTGRES_DB: nasa
+#    ports:
+#      - "5432:5432"
+#    volumes:
+#      - dbdata:/var/lib/postgresql/data
+#
+#volumes:
+#  dbdata:

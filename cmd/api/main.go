@@ -1,12 +1,12 @@
 package main
 
 import (
-	"fmt"
 	"log"
 
 	"nasa-app/internal/config"
-	"nasa-app/internal/db"
+	database "nasa-app/internal/db"
 	"nasa-app/internal/handlers"
+	"nasa-app/internal/models"
 	"nasa-app/internal/server"
 )
 
@@ -18,21 +18,27 @@ func main() {
 	}
 
 	// DB connection
-	conn, err := db.ConnectPostgres(cfg)
+	dsn := config.BuildDSN()
+	log.Printf("Connecting to database...")
+
+	db, err := database.Connect(dsn)
 	if err != nil {
-		log.Fatal("db connection error: ", err)
+		log.Fatal("database connection error: ", err)
 	}
 
-	// OAuth Config - ÖNEMLİ: Bu satırı ekleyin!
+	// Migrations
+	if err := database.Migrate(db, &models.User{}); err != nil {
+		log.Fatalf("db migrate: %v", err)
+	}
+
+	// Google OAuth
 	if err := handlers.InitGoogleOAuth(); err != nil {
 		log.Fatal("Failed to initialize Google OAuth: ", err)
 	}
-
-	oauthCfg, _ := config.LoadOauthConfig(".env")
-	fmt.Println("Oauth Config ClientID:", oauthCfg.ClientID[:20]+"...") // İlk 20 karakteri göster
+	log.Println("Google OAuth initialized ✓")
 
 	// Server
-	app := server.NewFiberApp(conn)
+	app := server.NewFiberApp(db)
 	log.Printf("Server running on :%s 🚀", cfg.AppPort)
 
 	if err := app.Listen(":" + cfg.AppPort); err != nil {
