@@ -4,29 +4,35 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
 
-const defaultBaseURL = "https://air-quality-api.open-meteo.com/v1/air-quality"
+const (
+	airQualityBaseURL = "https://air-quality-api.open-meteo.com/v1/air-quality"
+	weatherBaseURL    = "https://api.open-meteo.com/v1/forecast"
+)
 
-// Service retrieves AQI data from Open-Meteo air-quality API.
+// Service retrieves AQI data from Open-Meteo APIs.
 type Service struct {
-	client  *http.Client
-	baseURL string
+	client             *http.Client
+	airQualityURL      string
+	weatherForecastURL string
 }
 
 // NewService constructs a Service using the provided HTTP client. If client is nil,
 // a client with a 10 second timeout is created. baseURL is optional and falls back to
-// the Open-Meteo endpoint when empty.
+// the Open-Meteo endpoint when empty (legacy support - now ignored).
 func NewService(client *http.Client, baseURL string) *Service {
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
-	if baseURL == "" {
-		baseURL = defaultBaseURL
+	return &Service{
+		client:             client,
+		airQualityURL:      airQualityBaseURL,
+		weatherForecastURL: weatherBaseURL,
 	}
-	return &Service{client: client, baseURL: baseURL}
 }
 
 // Metrics represents the latest pollutant measurements (µg/m³).
@@ -42,67 +48,102 @@ type Metrics struct {
 }
 
 // GetMetrics fetches the most recent pollutant values for the given coordinates.
+// Makes two API calls: one for air quality data and one for weather data.
 func (s *Service) GetMetrics(latitude, longitude float64) (Metrics, error) {
-	url := fmt.Sprintf("%s?latitude=%f&longitude=%f&hourly=carbon_monoxide,sulphur_dioxide,nitrogen_dioxide,pm10,pm2_5,temperature_2m,relative_humidity_2m,population_density&timezone=UTC", s.baseURL, latitude, longitude)
+	// Fetch air quality data (pollutants)
+	airQualityURL := fmt.Sprintf("%s?latitude=%f&longitude=%f&hourly=carbon_monoxide,sulphur_dioxide,nitrogen_dioxide,pm10,pm2_5&timezone=UTC", s.airQualityURL, latitude, longitude)
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequest(http.MethodGet, airQualityURL, nil)
 	if err != nil {
-		return Metrics{}, fmt.Errorf("create request: %w", err)
+		return Metrics{}, fmt.Errorf("create air quality request: %w", err)
 	}
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return Metrics{}, fmt.Errorf("air-quality request: %w", err)
+		return Metrics{}, fmt.Errorf("air quality request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return Metrics{}, fmt.Errorf("air-quality request failed: status %d", resp.StatusCode)
+		bodyBytes, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return Metrics{}, fmt.Errorf("air quality request failed: status %d, url: %s, body read error: %v", resp.StatusCode, airQualityURL, readErr)
+		}
+		return Metrics{}, fmt.Errorf("air quality request failed: status %d, url: %s, response: %s", resp.StatusCode, airQualityURL, string(bodyBytes))
 	}
 
-	var payload struct {
+	var airQualityPayload struct {
 		Hourly struct {
-			CarbonMonoxide  []float64 `json:"carbon_monoxide"`
-			SulphurDioxide  []float64 `json:"sulphur_dioxide"`
-			NitrogenDioxide []float64 `json:"nitrogen_dioxide"`
-			PM10            []float64 `json:"pm10"`
 			PM25            []float64 `json:"pm2_5"`
-			Temperature     []float64 `json:"temperature_2m"`
-			Humidity        []float64 `json:"relative_humidity_2m"`
-			Population      []float64 `json:"population_density"`
+			PM10            []float64 `json:"pm10"`
+			NitrogenDioxide []float64 `json:"nitrogen_dioxide"`
+			SulphurDioxide  []float64 `json:"sulphur_dioxide"`
+			CarbonMonoxide  []float64 `json:"carbon_monoxide"`
 		} `json:"hourly"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return Metrics{}, fmt.Errorf("decode air-quality response: %w", err)
+	if err := json.NewDecoder(resp.Body).Decode(&airQualityPayload); err != nil {
+		return Metrics{}, fmt.Errorf("decode air quality response: %w", err)
 	}
 
+	// Fetch weather data (temperature and humidity)
+	weatherURL := fmt.Sprintf("%s?latitude=%f&longitude=%f&hourly=temperature_2m,relative_humidity_2m&timezone=UTC", s.weatherForecastURL, latitude, longitude)
+
+	req, err = http.NewRequest(http.MethodGet, weatherURL, nil)
+	if err != nil {
+		return Metrics{}, fmt.Errorf("create weather request: %w", err)
+	}
+
+	resp, err = s.client.Do(req)
+	if err != nil {
+		return Metrics{}, fmt.Errorf("weather request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		bodyBytes, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return Metrics{}, fmt.Errorf("weather request failed: status %d, url: %s, body read error: %v", resp.StatusCode, weatherURL, readErr)
+		}
+		return Metrics{}, fmt.Errorf("weather request failed: status %d, url: %s, response: %s", resp.StatusCode, weatherURL, string(bodyBytes))
+	}
+
+	var weatherPayload struct {
+		Hourly struct {
+			Temperature []float64 `json:"temperature_2m"`
+			Humidity    []float64 `json:"relative_humidity_2m"`
+		} `json:"hourly"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&weatherPayload); err != nil {
+		return Metrics{}, fmt.Errorf("decode weather response: %w", err)
+	}
+
+	// Combine data into Metrics
 	metrics := Metrics{}
 	var ok bool
 
-	if metrics.Temperature, ok = latestFloat(payload.Hourly.Temperature); !ok {
-		return Metrics{}, errors.New("air-quality response missing temperature data")
+	if metrics.Temperature, ok = latestFloat(weatherPayload.Hourly.Temperature); !ok {
+		return Metrics{}, errors.New("weather response missing temperature data")
 	}
-	if metrics.Humidity, ok = latestFloat(payload.Hourly.Humidity); !ok {
-		return Metrics{}, errors.New("air-quality response missing humidity data")
+	if metrics.Humidity, ok = latestFloat(weatherPayload.Hourly.Humidity); !ok {
+		return Metrics{}, errors.New("weather response missing humidity data")
 	}
-	if metrics.PM25, ok = latestFloat(payload.Hourly.PM25); !ok {
-		return Metrics{}, errors.New("air-quality response missing PM2.5 data")
+	if metrics.PM25, ok = latestFloat(airQualityPayload.Hourly.PM25); !ok {
+		return Metrics{}, errors.New("air quality response missing PM2.5 data")
 	}
-	if metrics.PM10, ok = latestFloat(payload.Hourly.PM10); !ok {
-		return Metrics{}, errors.New("air-quality response missing PM10 data")
+	if metrics.PM10, ok = latestFloat(airQualityPayload.Hourly.PM10); !ok {
+		return Metrics{}, errors.New("air quality response missing PM10 data")
 	}
-	if metrics.NO2, ok = latestFloat(payload.Hourly.NitrogenDioxide); !ok {
-		return Metrics{}, errors.New("air-quality response missing NO2 data")
+	if metrics.NO2, ok = latestFloat(airQualityPayload.Hourly.NitrogenDioxide); !ok {
+		return Metrics{}, errors.New("air quality response missing NO2 data")
 	}
-	if metrics.SO2, ok = latestFloat(payload.Hourly.SulphurDioxide); !ok {
-		return Metrics{}, errors.New("air-quality response missing SO2 data")
+	if metrics.SO2, ok = latestFloat(airQualityPayload.Hourly.SulphurDioxide); !ok {
+		return Metrics{}, errors.New("air quality response missing SO2 data")
 	}
-	if metrics.CO, ok = latestFloat(payload.Hourly.CarbonMonoxide); !ok {
-		return Metrics{}, errors.New("air-quality response missing CO data")
+	if metrics.CO, ok = latestFloat(airQualityPayload.Hourly.CarbonMonoxide); !ok {
+		return Metrics{}, errors.New("air quality response missing CO data")
 	}
-	if metrics.PopulationDensity, ok = latestFloat(payload.Hourly.Population); !ok {
-		return Metrics{}, errors.New("air-quality response missing population density data")
-	}
+	// Open-Meteo API does not provide population density, use fixed default value.
+	metrics.PopulationDensity = 497
 
 	return metrics, nil
 }

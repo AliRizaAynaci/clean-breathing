@@ -72,11 +72,17 @@ func New() *fiber.App {
 			log.Println("ML client initialized successfully")
 			mlPredictor = func(n notification.Notification, metrics airquality.Metrics) (mlclient.PredictionResponse, error) {
 				log.Printf("Sending prediction request to ML service for user %d", n.UserID)
-				return mlc.Predict(mlclient.NewPredictionRequest(
-					n.Latitude,
-					n.Longitude,
-					metrics,
-				))
+				req := mlclient.PredictionRequest{
+					Temperature:       metrics.Temperature,
+					Humidity:          metrics.Humidity,
+					PM25:              metrics.PM25,
+					PM10:              metrics.PM10,
+					NO2:               metrics.NO2,
+					SO2:               metrics.SO2,
+					CO:                metrics.CO,
+					PopulationDensity: metrics.PopulationDensity,
+				}
+				return mlc.Predict(req)
 			}
 		}
 	} else {
@@ -91,9 +97,19 @@ func New() *fiber.App {
 		return mailSender(n.Email, riskLevel, 0)
 	}
 
+	// ML predictor for air quality endpoint
+	aqMLPredictor := func(latitude, longitude float64, metrics airquality.Metrics) (string, error) {
+		prediction, err := mlPredictor(notification.Notification{Latitude: latitude, Longitude: longitude}, metrics)
+		if err != nil {
+			return "unknown", err
+		}
+		return prediction.RiskLevel, nil
+	}
+
 	/* ------------ Handlers ------------ */
 	userHdl := user2.NewHandler(userSvc)
 	notifHdl := notification.NewHandler(notifRepo, nil) // session store ileride eklenecek
+	aqHdl := airquality.NewHandler(aqService, aqMLPredictor)
 
 	/* ------------ Fiber ------------ */
 	app := fiber.New(fiber.Config{
@@ -129,6 +145,7 @@ func New() *fiber.App {
 	app.Get("/auth/google/login", auth.Login)
 	app.Get("/auth/google/callback", auth.Callback(userSvc))
 	app.Get("/logout", auth.Logout)
+	app.Get("/air-quality", aqHdl.GetAirQuality)
 
 	/* ------------ Protected routes ------------ */
 	api := app.Group("/", middleware.Auth())

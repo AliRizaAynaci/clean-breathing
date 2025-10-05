@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"nasa-app/internal/airquality"
 )
 
 const defaultPredictPath = "/predict"
@@ -56,20 +54,6 @@ type PredictionRequest struct {
 	SO2               float64 `json:"SO2"`
 	CO                float64 `json:"CO"`
 	PopulationDensity float64 `json:"Population_Density"`
-}
-
-// NewPredictionRequest builds the ML request payload from metrics.
-func NewPredictionRequest(latitude, longitude float64, metrics airquality.Metrics) PredictionRequest {
-	return PredictionRequest{
-		Temperature:       metrics.Temperature,
-		Humidity:          metrics.Humidity,
-		PM25:              metrics.PM25,
-		PM10:              metrics.PM10,
-		NO2:               metrics.NO2,
-		SO2:               metrics.SO2,
-		CO:                metrics.CO,
-		PopulationDensity: metrics.PopulationDensity,
-	}
 }
 
 // PredictionResponse represents the ML model result.
