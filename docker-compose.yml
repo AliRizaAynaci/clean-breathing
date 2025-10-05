@@ -22,6 +22,10 @@ services:
       OAUTH_REDIRECT_URL: ${OAUTH_REDIRECT_URL}
       JWT_SECRET: ${JWT_SECRET}
 
+      # Frontend redirect targets
+      FRONTEND_URI: ${FRONTEND_URI:-http://localhost:3000}
+      FRONTEND_REDIRECT_URL: ${FRONTEND_REDIRECT_URL:-http://localhost:3000/dashboard}
+
       # Migrations
       MIGRATE_ON_START: ${MIGRATE_ON_START:-true}
 

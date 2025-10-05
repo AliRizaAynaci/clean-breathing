@@ -1,47 +1,59 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
+	"nasa-app/internal/app"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-	"nasa-app/internal/config"
-	database "nasa-app/internal/db"
-	"nasa-app/internal/handlers"
-	"nasa-app/internal/models"
-	"nasa-app/internal/server"
+	"github.com/gofiber/fiber/v2"
 )
 
+func gracefulShutdown(app *fiber.App, done chan<- bool) {
+	// Listen for interrupt signals
+	ctx, stop := signal.NotifyContext(context.Background(),
+		syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	<-ctx.Done() // block until signal
+
+	// Allow second Ctrl+C to force exit
+	stop()
+
+	// Give active connections 5 s to finish
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := app.ShutdownWithContext(timeoutCtx); err != nil {
+		log.Fatalf("<UNK> Shutdown: %v", err)
+	}
+
+	done <- true // notify main() that shutdown is complete
+}
+
 func main() {
-	// Config
-	cfg, err := config.LoadConfig(".env")
-	if err != nil {
-		log.Println("Warning: .env file not found")
+
+	/* ------------ build Fiber app ------------ */
+	app := app.New() // all wiring (DB, routes, etc.) inside
+
+	/* ------------ graceful shutdown ------------ */
+	done := make(chan bool, 1)
+	go gracefulShutdown(app, done)
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080" // local fallback
 	}
 
-	// DB connection
-	dsn := config.BuildDSN()
-	log.Printf("Connecting to database...")
-
-	db, err := database.Connect(dsn)
-	if err != nil {
-		log.Fatal("database connection error: ", err)
+	if err := app.Listen(":" + port); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatalf("<UNK> Server listen: %v", err)
 	}
 
-	// Migrations
-	if err := database.Migrate(db, &models.User{}); err != nil {
-		log.Fatalf("db migrate: %v", err)
-	}
+	<-done
 
-	// Google OAuth
-	if err := handlers.InitGoogleOAuth(); err != nil {
-		log.Fatal("Failed to initialize Google OAuth: ", err)
-	}
-	log.Println("Google OAuth initialized ✓")
-
-	// Server
-	app := server.NewFiberApp(db)
-	log.Printf("Server running on :%s 🚀", cfg.AppPort)
-
-	if err := app.Listen(":" + cfg.AppPort); err != nil {
-		log.Fatal(err)
-	}
 }
