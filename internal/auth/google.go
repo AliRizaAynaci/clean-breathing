@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"nasa-app/internal/user"
 	"os"
 	"strconv"
@@ -29,18 +30,10 @@ func cfg() (*oauth2.Config, error) {
 	initOnce.Do(func() {
 		_ = godotenv.Load()
 
-	})
-
-	if initErr != nil {
-		return nil, initErr
-	}
-
-	return googleCfg, nil
 		clientID := os.Getenv("GOOGLE_CLIENT_ID")
 		clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
 		redirectURL := os.Getenv("OAUTH_REDIRECT_URL")
 
-		// ✅ Environment variable kontrolü
 		if clientID == "" || clientSecret == "" || redirectURL == "" {
 			initErr = errors.New("missing Google OAuth credentials in environment")
 			return
@@ -56,6 +49,14 @@ func cfg() (*oauth2.Config, error) {
 			},
 			Endpoint: google.Endpoint,
 		}
+	})
+
+	if initErr != nil {
+		return nil, initErr
+	}
+
+	return googleCfg, nil
+}
 
 // GET /auth/google/login
 func Login(c *fiber.Ctx) error {
@@ -119,18 +120,20 @@ func Callback(svc *user.Service) fiber.Handler {
 			return fiber.NewError(fiber.StatusInternalServerError, "jwt sign: "+err.Error())
 		}
 
-		// ✅ Cookie ayarları
-		// cookieSettings := resolveSessionCookieSettings()
-
-		c.Cookie(&fiber.Cookie{
+		settings := resolveSessionCookieSettings()
+		cookie := &fiber.Cookie{
 			Name:     "session_token",
 			Value:    signed,
 			Domain:   ".clean-breathing-710737072c4d.herokuapp.com",
 			Path:     "/",
 			HTTPOnly: true,
-			SameSite: "None",
-			Secure:   true,
-		})
+			SameSite: settings.SameSite,
+			Secure:   settings.Secure,
+		}
+		if settings.Domain != "" {
+			cookie.Domain = settings.Domain
+		}
+		c.Cookie(cookie)
 
 		frontendRedirect := resolveFrontendRedirect()
 		return c.Redirect(frontendRedirect, fiber.StatusSeeOther)
@@ -165,15 +168,14 @@ type sessionCookieSettings struct {
 
 func resolveSessionCookieSettings() sessionCookieSettings {
 	secure := true
+	frontendURI := strings.TrimSpace(os.Getenv("FRONTEND_URI"))
+
 	if v := strings.TrimSpace(os.Getenv("SESSION_COOKIE_SECURE")); v != "" {
 		if parsed, err := strconv.ParseBool(v); err == nil {
 			secure = parsed
 		}
-	} else {
-		// heuristik: localhost için varsayılan false
-		if strings.HasPrefix(strings.TrimSpace(os.Getenv("FRONTEND_URI")), "http://localhost") {
-			secure = false
-		}
+	} else if strings.HasPrefix(strings.ToLower(frontendURI), "http://localhost") {
+		secure = false
 	}
 
 	sameSite := normalizeSameSite(os.Getenv("SESSION_COOKIE_SAMESITE"))
@@ -185,13 +187,22 @@ func resolveSessionCookieSettings() sessionCookieSettings {
 		}
 	}
 
+	if strings.EqualFold(sameSite, "None") && !secure {
+		log.Printf("SESSION_COOKIE_SAMESITE=none requires Secure=true; forcing SameSite=Lax")
+		sameSite = "Lax"
+	}
+
 	domain := strings.TrimSpace(os.Getenv("SESSION_COOKIE_DOMAIN"))
 
-	return sessionCookieSettings{
+	settings := sessionCookieSettings{
 		Secure:   secure,
 		SameSite: sameSite,
 		Domain:   domain,
 	}
+
+	log.Printf("Resolved session cookie settings: secure=%t sameSite=%s domain=%s", settings.Secure, settings.SameSite, settings.Domain)
+
+	return settings
 }
 
 func normalizeSameSite(v string) string {
