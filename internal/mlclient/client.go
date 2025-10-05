@@ -48,29 +48,27 @@ func New(baseURL, predictPath string, httpClient *http.Client) (*Client, error) 
 
 // PredictionRequest is the payload sent to the ML service.
 type PredictionRequest struct {
-	Temperature                float64 `json:"Temperature"`
-	Humidity                   float64 `json:"Humidity"`
-	PM25                       float64 `json:"PM2_5"`
-	PM10                       float64 `json:"PM10"`
-	NO2                        float64 `json:"NO2"`
-	SO2                        float64 `json:"SO2"`
-	CO                         float64 `json:"CO"`
-	ProximityToIndustrialAreas float64 `json:"Proximity_to_Industrial_Areas"`
-	PopulationDensity          float64 `json:"Population_Density"`
+	Temperature       float64 `json:"Temperature"`
+	Humidity          float64 `json:"Humidity"`
+	PM25              float64 `json:"PM2_5"`
+	PM10              float64 `json:"PM10"`
+	NO2               float64 `json:"NO2"`
+	SO2               float64 `json:"SO2"`
+	CO                float64 `json:"CO"`
+	PopulationDensity float64 `json:"Population_Density"`
 }
 
 // NewPredictionRequest builds the ML request payload from metrics.
 func NewPredictionRequest(latitude, longitude float64, metrics airquality.Metrics) PredictionRequest {
 	return PredictionRequest{
-		Temperature:                metrics.Temperature,
-		Humidity:                   metrics.Humidity,
-		PM25:                       metrics.PM25,
-		PM10:                       metrics.PM10,
-		NO2:                        metrics.NO2,
-		SO2:                        metrics.SO2,
-		CO:                         metrics.CO,
-		ProximityToIndustrialAreas: 0.0, // Şimdilik default değer, gerekirse eklenecek
-		PopulationDensity:          metrics.PopulationDensity,
+		Temperature:       metrics.Temperature,
+		Humidity:          metrics.Humidity,
+		PM25:              metrics.PM25,
+		PM10:              metrics.PM10,
+		NO2:               metrics.NO2,
+		SO2:               metrics.SO2,
+		CO:                metrics.CO,
+		PopulationDensity: metrics.PopulationDensity,
 	}
 }
 
