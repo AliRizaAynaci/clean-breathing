@@ -29,6 +29,13 @@ func cfg() (*oauth2.Config, error) {
 	initOnce.Do(func() {
 		_ = godotenv.Load()
 
+	})
+
+	if initErr != nil {
+		return nil, initErr
+	}
+
+	return googleCfg, nil
 		clientID := os.Getenv("GOOGLE_CLIENT_ID")
 		clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
 		redirectURL := os.Getenv("OAUTH_REDIRECT_URL")
@@ -49,14 +56,6 @@ func cfg() (*oauth2.Config, error) {
 			},
 			Endpoint: google.Endpoint,
 		}
-	})
-
-	if initErr != nil {
-		return nil, initErr
-	}
-
-	return googleCfg, nil
-}
 
 // GET /auth/google/login
 func Login(c *fiber.Ctx) error {
@@ -121,30 +120,20 @@ func Callback(svc *user.Service) fiber.Handler {
 		}
 
 		// ✅ Cookie ayarları
-		cookieSettings := resolveSessionCookieSettings()
+		// cookieSettings := resolveSessionCookieSettings()
 
 		c.Cookie(&fiber.Cookie{
 			Name:     "session_token",
 			Value:    signed,
+			Domain:   ".clean-breathing-710737072c4d.herokuapp.com",
 			Path:     "/",
 			HTTPOnly: true,
-			SameSite: cookieSettings.SameSite,
-			Secure:   cookieSettings.Secure,
-			Domain:   cookieSettings.Domain,
-			MaxAge:   86400, // 24 saat
+			SameSite: "None",
+			Secure:   true,
 		})
 
 		frontendRedirect := resolveFrontendRedirect()
-
-		// ✅ Token'ı query param olarak da ekle (frontend manuel okuyabilsin)
-		redirectURL := frontendRedirect
-		if strings.Contains(redirectURL, "?") {
-			redirectURL += "&token=" + signed
-		} else {
-			redirectURL += "?token=" + signed
-		}
-
-		return c.Redirect(redirectURL, fiber.StatusSeeOther)
+		return c.Redirect(frontendRedirect, fiber.StatusSeeOther)
 	}
 }
 
