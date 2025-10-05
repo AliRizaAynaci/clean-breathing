@@ -124,15 +124,17 @@ func Callback(svc *user.Service) fiber.Handler {
 		cookie := &fiber.Cookie{
 			Name:     "session_token",
 			Value:    signed,
-			Domain:   ".clean-breathing-710737072c4d.herokuapp.com",
 			Path:     "/",
 			HTTPOnly: true,
 			SameSite: settings.SameSite,
 			Secure:   settings.Secure,
+			MaxAge:   86400,
+			Expires:  time.Now().Add(24 * time.Hour),
 		}
 		if settings.Domain != "" {
 			cookie.Domain = settings.Domain
 		}
+		log.Printf("Issuing session cookie: domain=%s secure=%t sameSite=%s maxAge=%d", cookie.Domain, cookie.Secure, cookie.SameSite, cookie.MaxAge)
 		c.Cookie(cookie)
 
 		frontendRedirect := resolveFrontendRedirect()
