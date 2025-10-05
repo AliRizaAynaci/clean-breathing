@@ -6,12 +6,11 @@ import (
 	"nasa-app/internal/airquality"
 	"nasa-app/internal/auth"
 	database "nasa-app/internal/db"
-	"nasa-app/internal/middleware" // ✅ EKLENDI
+	"nasa-app/internal/middleware"
 	"nasa-app/internal/mlclient"
 	"nasa-app/internal/notification"
 	user2 "nasa-app/internal/user"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -148,36 +147,4 @@ func New() *fiber.App {
 	)
 
 	return app
-}
-
-func resolveFrontendOrigins(values ...string) []string {
-	seen := make(map[string]struct{})
-	origins := make([]string, 0)
-
-	for _, value := range values {
-		if value == "" {
-			continue
-		}
-		for _, part := range strings.Split(value, ",") {
-			trimmed := strings.TrimSpace(part)
-			if trimmed == "" {
-				continue
-			}
-			if _, exists := seen[trimmed]; !exists {
-				origins = append(origins, trimmed)
-				seen[trimmed] = struct{}{}
-			}
-		}
-	}
-
-	if len(origins) == 0 {
-		origins = append(origins, "http://localhost:3000")
-		seen["http://localhost:3000"] = struct{}{}
-	}
-
-	if _, exists := seen["http://localhost:3000"]; !exists {
-		origins = append(origins, "http://localhost:3000")
-	}
-
-	return origins
 }
