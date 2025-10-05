@@ -6,7 +6,6 @@ import (
 	"errors"
 	"nasa-app/internal/user"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -123,31 +122,17 @@ func Callback(svc *user.Service) fiber.Handler {
 		c.Cookie(&fiber.Cookie{
 			Name:     "session_token",
 			Value:    signed,
+			Domain:   ".clean-breathing-710737072c4d.herokuapp.com",
 			Path:     "/",
 			HTTPOnly: true,
-			SameSite: "None", // ✅ Localhost için Lax kullan
-			Secure:   true,   // ✅ Localhost için false
-			MaxAge:   86400,  // 24 saat
+			SameSite: "None",
+			Secure:   true,
 		})
 
-		frontendRedirect := resolveFrontendRedirect()
+		frontendRedirect := os.Getenv("FRONTEND_REDIRECT_URL")
+		if frontendRedirect == "" {
+			frontendRedirect = os.Getenv("FRONTEND_URI") + "/dashboard" // fallback
+		}
 		return c.Redirect(frontendRedirect, fiber.StatusSeeOther)
 	}
-}
-
-func resolveFrontendRedirect() string {
-	frontendBase := os.Getenv("FRONTEND_URI")
-	if frontendBase == "" {
-		frontendBase = "http://localhost:3000"
-	}
-	frontendRedirect := os.Getenv("FRONTEND_REDIRECT_URL")
-	if frontendRedirect != "" {
-		return frontendRedirect
-	}
-
-	trimmed := strings.TrimRight(frontendBase, "/")
-	if trimmed == "" {
-		return "/"
-	}
-	return trimmed + "/dashboard"
 }

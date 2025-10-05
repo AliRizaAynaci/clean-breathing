@@ -10,7 +10,6 @@ import (
 	"nasa-app/internal/mlclient"
 	"nasa-app/internal/notification"
 	user2 "nasa-app/internal/user"
-	"os"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -113,7 +112,7 @@ func New() *fiber.App {
 
 	// ✅ CORS düzeltmesi
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     os.Getenv("FRONTEND_URI"),
+		AllowOrigins:     "https://clean-breathing-front-six.vercel.app",
 		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS,PATCH",
 		AllowHeaders:     "Accept, Authorization, Content-Type, X-CSRF-Token",
 		AllowCredentials: true,
