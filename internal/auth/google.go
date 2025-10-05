@@ -135,7 +135,16 @@ func Callback(svc *user.Service) fiber.Handler {
 		})
 
 		frontendRedirect := resolveFrontendRedirect()
-		return c.Redirect(frontendRedirect, fiber.StatusSeeOther)
+
+		// ✅ Token'ı query param olarak da ekle (frontend manuel okuyabilsin)
+		redirectURL := frontendRedirect
+		if strings.Contains(redirectURL, "?") {
+			redirectURL += "&token=" + signed
+		} else {
+			redirectURL += "?token=" + signed
+		}
+
+		return c.Redirect(redirectURL, fiber.StatusSeeOther)
 	}
 }
 

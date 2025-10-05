@@ -19,16 +19,18 @@ func Auth() fiber.Handler {
 		// 1) Try session cookie first
 		if cookie := c.Cookies("session_token"); cookie != "" {
 			tokenStr = cookie
+			log.Printf("AUTH: Found session_token in cookie (len=%d)", len(cookie))
 		}
 		// 2) Fallback to Authorization: Bearer <token> header
 		if tokenStr == "" {
 			auth := c.Get("Authorization")
 			if strings.HasPrefix(auth, "Bearer ") {
 				tokenStr = strings.TrimPrefix(auth, "Bearer ")
+				log.Printf("AUTH: Found token in Authorization header (len=%d)", len(tokenStr))
 			}
 		}
 		if tokenStr == "" {
-			log.Println("TOKENSTR IS EMPTY")
+			log.Println("AUTH: No token found in cookie or header")
 			return fiber.ErrUnauthorized
 		}
 
@@ -37,7 +39,7 @@ func Auth() fiber.Handler {
 			return secret, nil
 		})
 		if err != nil || !tok.Valid {
-			log.Println("JWT PARSE FAILED: ", err)
+			log.Printf("AUTH: JWT parse failed: %v", err)
 			return fiber.ErrUnauthorized
 		}
 
@@ -45,6 +47,7 @@ func Auth() fiber.Handler {
 		uid := uint(claims["user_id"].(float64))
 		// Pass user_id to the next handlers
 		c.Locals("user_id", uid)
+		log.Printf("AUTH: Successfully authenticated user_id=%d", uid)
 
 		return c.Next()
 	}

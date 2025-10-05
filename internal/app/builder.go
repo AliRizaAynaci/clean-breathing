@@ -122,6 +122,7 @@ func New() *fiber.App {
 		AllowOrigins:     allowedOrigins,
 		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS,PATCH",
 		AllowHeaders:     "Origin, Accept, Authorization, Content-Type, X-CSRF-Token, X-Requested-With, Cookie",
+		ExposeHeaders:    "Set-Cookie",
 		AllowCredentials: true,
 	}))
 
