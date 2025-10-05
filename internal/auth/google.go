@@ -137,6 +137,9 @@ func Callback(svc *user.Service) fiber.Handler {
 
 func resolveFrontendRedirect() string {
 	frontendBase := os.Getenv("FRONTEND_URI")
+	if idx := strings.Index(frontendBase, ","); idx >= 0 {
+		frontendBase = frontendBase[:idx]
+	}
 	if frontendBase == "" {
 		frontendBase = "http://localhost:3000"
 	}

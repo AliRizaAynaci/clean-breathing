@@ -11,6 +11,7 @@ import (
 	"nasa-app/internal/notification"
 	user2 "nasa-app/internal/user"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -112,15 +113,15 @@ func New() *fiber.App {
 	srv.WriteTimeout = 15 * time.Second
 
 	// ✅ CORS düzeltmesi
-	frontendOrigin := os.Getenv("FRONTEND_URI")
-	if frontendOrigin == "" {
-		frontendOrigin = "http://localhost:3000"
-	}
+	allowedOrigins := strings.Join(resolveFrontendOrigins(
+		os.Getenv("FRONTEND_URI"),
+		os.Getenv("FRONTEND_EXTRA_ORIGINS"),
+	), ",")
 
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     frontendOrigin,
+		AllowOrigins:     allowedOrigins,
 		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS,PATCH",
-		AllowHeaders:     "Accept, Authorization, Content-Type, X-CSRF-Token",
+		AllowHeaders:     "Accept, Authorization, Content-Type, X-CSRF-Token, X-Requested-With, Cookie",
 		AllowCredentials: true,
 	}))
 
@@ -152,4 +153,36 @@ func New() *fiber.App {
 	)
 
 	return app
+}
+
+func resolveFrontendOrigins(values ...string) []string {
+	seen := make(map[string]struct{})
+	origins := make([]string, 0)
+
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		for _, part := range strings.Split(value, ",") {
+			trimmed := strings.TrimSpace(part)
+			if trimmed == "" {
+				continue
+			}
+			if _, exists := seen[trimmed]; !exists {
+				origins = append(origins, trimmed)
+				seen[trimmed] = struct{}{}
+			}
+		}
+	}
+
+	if len(origins) == 0 {
+		origins = append(origins, "http://localhost:3000")
+		seen["http://localhost:3000"] = struct{}{}
+	}
+
+	if _, exists := seen["http://localhost:3000"]; !exists {
+		origins = append(origins, "http://localhost:3000")
+	}
+
+	return origins
 }
