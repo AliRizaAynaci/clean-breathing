@@ -122,11 +122,11 @@ func Callback(svc *user.Service) fiber.Handler {
 		c.Cookie(&fiber.Cookie{
 			Name:     "session_token",
 			Value:    signed,
-			Domain:   ".clean-breathing-710737072c4d.herokuapp.com",
 			Path:     "/",
 			HTTPOnly: true,
-			SameSite: "None",
-			Secure:   true,
+			SameSite: "None", // ✅ Localhost için Lax kullan
+			Secure:   true,   // ✅ Localhost için false
+			MaxAge:   86400,  // 24 saat
 		})
 
 		frontendRedirect := os.Getenv("FRONTEND_REDIRECT_URL")

@@ -112,7 +112,7 @@ func New() *fiber.App {
 
 	// ✅ CORS düzeltmesi
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     "https://clean-breathing-front-six.vercel.app",
+		AllowOrigins:     "http://localhost:3000, https://localhost:3000, https://clean-breathing-front-six.vercel.app",
 		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS,PATCH",
 		AllowHeaders:     "Accept, Authorization, Content-Type, X-CSRF-Token",
 		AllowCredentials: true,
