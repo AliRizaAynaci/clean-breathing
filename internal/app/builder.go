@@ -113,16 +113,10 @@ func New() *fiber.App {
 	srv.WriteTimeout = 15 * time.Second
 
 	// ✅ CORS düzeltmesi
-	allowedOrigins := strings.Join(resolveFrontendOrigins(
-		os.Getenv("FRONTEND_URI"),
-		os.Getenv("FRONTEND_EXTRA_ORIGINS"),
-	), ",")
-
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     allowedOrigins,
+		AllowOrigins:     os.Getenv("FRONTEND_URI"),
 		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS,PATCH",
-		AllowHeaders:     "Origin, Accept, Authorization, Content-Type, X-CSRF-Token, X-Requested-With, Cookie",
-		ExposeHeaders:    "Set-Cookie",
+		AllowHeaders:     "Accept, Authorization, Content-Type, X-CSRF-Token",
 		AllowCredentials: true,
 	}))
 
