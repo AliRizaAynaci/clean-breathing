@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"nasa-app/internal/user"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -114,21 +116,27 @@ func Callback(svc *user.Service) fiber.Handler {
 			"exp":     time.Now().Add(24 * time.Hour).Unix(),
 		}
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		signed, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
+		signed, err := token.SignedString([]byte(resolveJWTSecret()))
 		if err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "jwt sign: "+err.Error())
 		}
 
-		// Set cookie
-		c.Cookie(&fiber.Cookie{
+		settings := resolveSessionCookieSettings()
+		cookie := &fiber.Cookie{
 			Name:     "session_token",
 			Value:    signed,
-			Domain:   ".clean-breathing-710737072c4d.herokuapp.com",
 			Path:     "/",
 			HTTPOnly: true,
-			SameSite: "None",
-			Secure:   true,
-		})
+			SameSite: settings.SameSite,
+			Secure:   settings.Secure,
+			MaxAge:   86400,
+			Expires:  time.Now().Add(24 * time.Hour),
+		}
+		if settings.Domain != "" {
+			cookie.Domain = settings.Domain
+		}
+		log.Printf("Issuing session cookie: domain=%s secure=%t sameSite=%s maxAge=%d", cookie.Domain, cookie.Secure, cookie.SameSite, cookie.MaxAge)
+		c.Cookie(cookie)
 
 		frontendRedirect := resolveFrontendRedirect()
 		return c.Redirect(frontendRedirect, fiber.StatusSeeOther)
@@ -141,7 +149,7 @@ func resolveFrontendRedirect() string {
 		frontendBase = frontendBase[:idx]
 	}
 	if frontendBase == "" {
-		frontendBase = "https://clean-breathing-front-six.vercel.app"
+		frontendBase = "http://localhost:3000"
 	}
 	frontendRedirect := os.Getenv("FRONTEND_REDIRECT_URL")
 	if frontendRedirect != "" {
@@ -153,4 +161,72 @@ func resolveFrontendRedirect() string {
 		return "/"
 	}
 	return trimmed + "/dashboard"
+}
+
+type sessionCookieSettings struct {
+	Secure   bool
+	SameSite string
+	Domain   string
+}
+
+func resolveSessionCookieSettings() sessionCookieSettings {
+	secure := true
+	if v := strings.TrimSpace(os.Getenv("SESSION_COOKIE_SECURE")); v != "" {
+		if parsed, err := strconv.ParseBool(v); err == nil {
+			secure = parsed
+		}
+	}
+
+	sameSite := normalizeSameSite(os.Getenv("SESSION_COOKIE_SAMESITE"))
+	if sameSite == "" {
+		if secure {
+			sameSite = "None"
+		} else {
+			sameSite = "Lax"
+		}
+	}
+
+	if strings.EqualFold(sameSite, "None") && !secure {
+		log.Printf("SESSION_COOKIE_SAMESITE=None requires Secure=true; forcing SameSite=Lax")
+		sameSite = "Lax"
+	}
+
+	domain := strings.TrimSpace(os.Getenv("SESSION_COOKIE_DOMAIN"))
+	if domain != "" {
+		log.Printf("Using session cookie domain=%s", domain)
+	}
+
+	settings := sessionCookieSettings{
+		Secure:   secure,
+		SameSite: sameSite,
+		Domain:   domain,
+	}
+
+	log.Printf("Resolved session cookie settings: secure=%t sameSite=%s domain=%s", settings.Secure, settings.SameSite, settings.Domain)
+
+	return settings
+}
+
+func resolveJWTSecret() string {
+	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	if secret == "" {
+		log.Println("JWT_SECRET not set; using default insecure development key")
+		secret = "super-secret-change-me"
+	}
+	return secret
+}
+
+func normalizeSameSite(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "default":
+		return ""
+	case "none":
+		return "None"
+	case "lax":
+		return "Lax"
+	case "strict":
+		return "Strict"
+	default:
+		return ""
+	}
 }
