@@ -6,6 +6,7 @@ import (
 	"errors"
 	"nasa-app/internal/user"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -119,14 +120,17 @@ func Callback(svc *user.Service) fiber.Handler {
 			return fiber.NewError(fiber.StatusInternalServerError, "jwt sign: "+err.Error())
 		}
 
-		// ✅ Cookie düzeltmeleri
+		// ✅ Cookie ayarları
+		cookieSettings := resolveSessionCookieSettings()
+
 		c.Cookie(&fiber.Cookie{
 			Name:     "session_token",
 			Value:    signed,
 			Path:     "/",
 			HTTPOnly: true,
-			SameSite: "Lax", // ✅ Localhost için Lax kullan
-			Secure:   false, // ✅ Localhost için false
+			SameSite: cookieSettings.SameSite,
+			Secure:   cookieSettings.Secure,
+			Domain:   cookieSettings.Domain,
 			MaxAge:   86400, // 24 saat
 		})
 
@@ -153,4 +157,56 @@ func resolveFrontendRedirect() string {
 		return "/"
 	}
 	return trimmed + "/dashboard"
+}
+
+type sessionCookieSettings struct {
+	Secure   bool
+	SameSite string
+	Domain   string
+}
+
+func resolveSessionCookieSettings() sessionCookieSettings {
+	secure := true
+	if v := strings.TrimSpace(os.Getenv("SESSION_COOKIE_SECURE")); v != "" {
+		if parsed, err := strconv.ParseBool(v); err == nil {
+			secure = parsed
+		}
+	} else {
+		// heuristik: localhost için varsayılan false
+		if strings.HasPrefix(strings.TrimSpace(os.Getenv("FRONTEND_URI")), "http://localhost") {
+			secure = false
+		}
+	}
+
+	sameSite := normalizeSameSite(os.Getenv("SESSION_COOKIE_SAMESITE"))
+	if sameSite == "" {
+		if secure {
+			sameSite = "None"
+		} else {
+			sameSite = "Lax"
+		}
+	}
+
+	domain := strings.TrimSpace(os.Getenv("SESSION_COOKIE_DOMAIN"))
+
+	return sessionCookieSettings{
+		Secure:   secure,
+		SameSite: sameSite,
+		Domain:   domain,
+	}
+}
+
+func normalizeSameSite(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "default":
+		return ""
+	case "none":
+		return "None"
+	case "lax":
+		return "Lax"
+	case "strict":
+		return "Strict"
+	default:
+		return ""
+	}
 }

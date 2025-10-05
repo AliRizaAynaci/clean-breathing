@@ -121,7 +121,7 @@ func New() *fiber.App {
 	app.Use(cors.New(cors.Config{
 		AllowOrigins:     allowedOrigins,
 		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS,PATCH",
-		AllowHeaders:     "Accept, Authorization, Content-Type, X-CSRF-Token, X-Requested-With, Cookie",
+		AllowHeaders:     "Origin, Accept, Authorization, Content-Type, X-CSRF-Token, X-Requested-With, Cookie",
 		AllowCredentials: true,
 	}))
 
