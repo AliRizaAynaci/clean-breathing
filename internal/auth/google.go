@@ -6,6 +6,8 @@ import (
 	"errors"
 	"log"
 	"nasa-app/internal/user"
+	"net"
+	neturl "net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -115,7 +117,8 @@ func Callback(svc *user.Service) fiber.Handler {
 			"exp":     time.Now().Add(24 * time.Hour).Unix(),
 		}
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		signed, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
+		jwtSecret := resolveJWTSecret()
+		signed, err := token.SignedString([]byte(jwtSecret))
 		if err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "jwt sign: "+err.Error())
 		}
@@ -195,6 +198,12 @@ func resolveSessionCookieSettings() sessionCookieSettings {
 	}
 
 	domain := strings.TrimSpace(os.Getenv("SESSION_COOKIE_DOMAIN"))
+	if domain == "" {
+		if derived := deriveCookieDomainFromFrontend(frontendURI); derived != "" {
+			domain = derived
+			log.Printf("Derived session cookie domain=%s from FRONTEND_URI", domain)
+		}
+	}
 
 	settings := sessionCookieSettings{
 		Secure:   secure,
@@ -205,6 +214,64 @@ func resolveSessionCookieSettings() sessionCookieSettings {
 	log.Printf("Resolved session cookie settings: secure=%t sameSite=%s domain=%s", settings.Secure, settings.SameSite, settings.Domain)
 
 	return settings
+}
+
+func resolveJWTSecret() string {
+	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	if secret == "" {
+		log.Println("JWT_SECRET not set; using default insecure development key")
+		secret = "super-secret-change-me"
+	}
+	return secret
+}
+
+func deriveCookieDomainFromFrontend(frontendURI string) string {
+	primary := firstFrontendOrigin(frontendURI)
+	if primary == "" {
+		return ""
+	}
+	if !strings.Contains(primary, "://") {
+		primary = "https://" + primary
+	}
+	parsed, err := neturl.Parse(primary)
+	if err != nil {
+		return ""
+	}
+	host := parsed.Hostname()
+	return deriveCookieDomainFromHost(host)
+}
+
+func firstFrontendOrigin(value string) string {
+	if value == "" {
+		return ""
+	}
+	parts := strings.Split(value, ",")
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(parts[0])
+}
+
+func deriveCookieDomainFromHost(host string) string {
+	host = strings.TrimSpace(host)
+	if host == "" || strings.EqualFold(host, "localhost") {
+		return ""
+	}
+	if net.ParseIP(host) != nil {
+		return ""
+	}
+	segments := strings.Split(host, ".")
+	if len(segments) <= 1 {
+		return host
+	}
+	if len(segments) == 2 {
+		return host
+	}
+	secondLast := segments[len(segments)-2]
+	if len(segments) >= 3 && len(secondLast) <= 3 {
+		return strings.Join(segments[len(segments)-3:], ".")
+	}
+	return strings.Join(segments[len(segments)-2:], ".")
 }
 
 func normalizeSameSite(v string) string {
