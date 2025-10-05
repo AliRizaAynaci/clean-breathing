@@ -48,16 +48,36 @@ func New(baseURL, predictPath string, httpClient *http.Client) (*Client, error) 
 
 // PredictionRequest is the payload sent to the ML service.
 type PredictionRequest struct {
-	Latitude  float64            `json:"latitude"`
-	Longitude float64            `json:"longitude"`
-	Metrics   airquality.Metrics `json:"metrics"`
+	Temperature                float64 `json:"Temperature"`
+	Humidity                   float64 `json:"Humidity"`
+	PM25                       float64 `json:"PM2_5"`
+	PM10                       float64 `json:"PM10"`
+	NO2                        float64 `json:"NO2"`
+	SO2                        float64 `json:"SO2"`
+	CO                         float64 `json:"CO"`
+	ProximityToIndustrialAreas float64 `json:"Proximity_to_Industrial_Areas"`
+	PopulationDensity          float64 `json:"Population_Density"`
+}
+
+// NewPredictionRequest builds the ML request payload from metrics.
+func NewPredictionRequest(latitude, longitude float64, metrics airquality.Metrics) PredictionRequest {
+	return PredictionRequest{
+		Temperature:                metrics.Temperature,
+		Humidity:                   metrics.Humidity,
+		PM25:                       metrics.PM25,
+		PM10:                       metrics.PM10,
+		NO2:                        metrics.NO2,
+		SO2:                        metrics.SO2,
+		CO:                         metrics.CO,
+		ProximityToIndustrialAreas: 0.0, // Şimdilik default değer, gerekirse eklenecek
+		PopulationDensity:          metrics.PopulationDensity,
+	}
 }
 
 // PredictionResponse represents the ML model result.
 type PredictionResponse struct {
-	PredictedAQI float64        `json:"predicted_aqi"`
-	RiskLevel    string         `json:"risk_level,omitempty"`
-	Meta         map[string]any `json:"meta,omitempty"`
+	RiskLevel string         `json:"risk_level"`
+	Meta      map[string]any `json:"meta,omitempty"`
 }
 
 // Predict sends pollutant metrics to the ML service and returns the prediction.

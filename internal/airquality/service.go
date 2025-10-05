@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"time"
 )
@@ -30,20 +29,21 @@ func NewService(client *http.Client, baseURL string) *Service {
 	return &Service{client: client, baseURL: baseURL}
 }
 
-// Metrics represents the latest pollutant measurements (µg/m³) and AQI.
+// Metrics represents the latest pollutant measurements (µg/m³).
 type Metrics struct {
-	AQI  int
-	CO   float64
-	SO2  float64
-	NO2  float64
-	O3   float64
-	PM10 float64
-	PM25 float64
+	Temperature       float64
+	Humidity          float64
+	PM25              float64
+	PM10              float64
+	NO2               float64
+	SO2               float64
+	CO                float64
+	PopulationDensity float64
 }
 
 // GetMetrics fetches the most recent pollutant values for the given coordinates.
 func (s *Service) GetMetrics(latitude, longitude float64) (Metrics, error) {
-	url := fmt.Sprintf("%s?latitude=%f&longitude=%f&hourly=european_aqi,carbon_monoxide,sulphur_dioxide,nitrogen_dioxide,ozone,pm10,pm2_5&timezone=UTC", s.baseURL, latitude, longitude)
+	url := fmt.Sprintf("%s?latitude=%f&longitude=%f&hourly=carbon_monoxide,sulphur_dioxide,nitrogen_dioxide,pm10,pm2_5,temperature_2m,relative_humidity_2m,population_density&timezone=UTC", s.baseURL, latitude, longitude)
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -62,13 +62,14 @@ func (s *Service) GetMetrics(latitude, longitude float64) (Metrics, error) {
 
 	var payload struct {
 		Hourly struct {
-			EuropeanAQI     []float64 `json:"european_aqi"`
 			CarbonMonoxide  []float64 `json:"carbon_monoxide"`
 			SulphurDioxide  []float64 `json:"sulphur_dioxide"`
 			NitrogenDioxide []float64 `json:"nitrogen_dioxide"`
-			Ozone           []float64 `json:"ozone"`
 			PM10            []float64 `json:"pm10"`
 			PM25            []float64 `json:"pm2_5"`
+			Temperature     []float64 `json:"temperature_2m"`
+			Humidity        []float64 `json:"relative_humidity_2m"`
+			Population      []float64 `json:"population_density"`
 		} `json:"hourly"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
@@ -77,47 +78,47 @@ func (s *Service) GetMetrics(latitude, longitude float64) (Metrics, error) {
 
 	metrics := Metrics{}
 	var ok bool
-	metrics.AQI, ok = latestInt(payload.Hourly.EuropeanAQI)
-	if !ok {
-		return Metrics{}, errors.New("air-quality response missing AQI data")
-	}
 
-	if metrics.CO, ok = latestFloat(payload.Hourly.CarbonMonoxide); !ok {
-		return Metrics{}, errors.New("air-quality response missing CO data")
+	if metrics.Temperature, ok = latestFloat(payload.Hourly.Temperature); !ok {
+		return Metrics{}, errors.New("air-quality response missing temperature data")
 	}
-	if metrics.SO2, ok = latestFloat(payload.Hourly.SulphurDioxide); !ok {
-		return Metrics{}, errors.New("air-quality response missing SO2 data")
+	if metrics.Humidity, ok = latestFloat(payload.Hourly.Humidity); !ok {
+		return Metrics{}, errors.New("air-quality response missing humidity data")
 	}
-	if metrics.NO2, ok = latestFloat(payload.Hourly.NitrogenDioxide); !ok {
-		return Metrics{}, errors.New("air-quality response missing NO2 data")
-	}
-	if metrics.O3, ok = latestFloat(payload.Hourly.Ozone); !ok {
-		return Metrics{}, errors.New("air-quality response missing O3 data")
+	if metrics.PM25, ok = latestFloat(payload.Hourly.PM25); !ok {
+		return Metrics{}, errors.New("air-quality response missing PM2.5 data")
 	}
 	if metrics.PM10, ok = latestFloat(payload.Hourly.PM10); !ok {
 		return Metrics{}, errors.New("air-quality response missing PM10 data")
 	}
-	if metrics.PM25, ok = latestFloat(payload.Hourly.PM25); !ok {
-		return Metrics{}, errors.New("air-quality response missing PM2.5 data")
+	if metrics.NO2, ok = latestFloat(payload.Hourly.NitrogenDioxide); !ok {
+		return Metrics{}, errors.New("air-quality response missing NO2 data")
+	}
+	if metrics.SO2, ok = latestFloat(payload.Hourly.SulphurDioxide); !ok {
+		return Metrics{}, errors.New("air-quality response missing SO2 data")
+	}
+	if metrics.CO, ok = latestFloat(payload.Hourly.CarbonMonoxide); !ok {
+		return Metrics{}, errors.New("air-quality response missing CO data")
+	}
+	if metrics.PopulationDensity, ok = latestFloat(payload.Hourly.Population); !ok {
+		return Metrics{}, errors.New("air-quality response missing population density data")
 	}
 
 	return metrics, nil
 }
 
-// GetAQI is retained for backward compatibility.
-func (s *Service) GetAQI(latitude, longitude float64) (int, error) {
-	m, err := s.GetMetrics(latitude, longitude)
-	if err != nil {
-		return 0, err
+// FeatureVector returns the ordered feature slice expected by the ML model.
+func (m Metrics) FeatureVector() []float64 {
+	return []float64{
+		m.Temperature,
+		m.Humidity,
+		m.PM25,
+		m.PM10,
+		m.NO2,
+		m.SO2,
+		m.CO,
+		m.PopulationDensity,
 	}
-	return m.AQI, nil
-}
-
-func latestInt(values []float64) (int, bool) {
-	if len(values) == 0 {
-		return 0, false
-	}
-	return int(math.Round(values[len(values)-1])), true
 }
 
 func latestFloat(values []float64) (float64, bool) {

@@ -30,13 +30,20 @@ func NewMailer(cfg SMTPConfig) (*Mailer, error) {
 	return &Mailer{cfg: cfg}, nil
 }
 
-func (m *Mailer) SendAQIAlert(to string, aqi int) error {
+func (m *Mailer) SendAQIAlert(to, riskLevel string, aqi int) error {
 	if to == "" {
 		return errors.New("recipient email is empty")
 	}
 
-	subject := fmt.Sprintf("Air quality alert: AQI %d", aqi)
-	body := fmt.Sprintf("Merhaba,\n\nBulunduğunuz konumdaki hava kalitesi indeksi %d seviyesine ulaştı. Lütfen gerekli önlemleri alınız.\n\nSevgiler,\nClean Breathing", aqi)
+	if riskLevel == "" {
+		riskLevel = "unknown"
+	}
+
+	subject := fmt.Sprintf("Hava Kalitesi Uyarısı: %s", strings.ToUpper(riskLevel))
+	body := fmt.Sprintf(
+		"Merhaba,\n\nBulunduğunuz konumdaki hava kalitesi uyarı seviyesine ulaştı.\n\nRisk Durumu: %s\n\nLütfen gerekli önlemleri alınız ve mümkünse dışarı çıkmayınız.\n\nSevgiler,\nClean Breathing",
+		strings.ToUpper(riskLevel),
+	)
 
 	return m.sendMail(to, subject, body)
 }

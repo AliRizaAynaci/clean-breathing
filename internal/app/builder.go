@@ -2,7 +2,6 @@ package app
 
 import (
 	"log"
-	"math"
 	"nasa-app/internal/airquality"
 	"nasa-app/internal/auth"
 	database "nasa-app/internal/db"
@@ -39,8 +38,8 @@ func New() *fiber.App {
 	notifRepo := notification.NewRepository(db)
 	aqService := airquality.NewService(nil, cfg.AQIBaseURL)
 
-	mailSender := func(email string, aqi int) error {
-		log.Printf("SMTP configuration missing; skipping email to %s (AQI=%d)", email, aqi)
+	mailSender := func(email, riskLevel string, aqi int) error {
+		log.Printf("SMTP configuration missing; skipping email to %s (risk=%s)", email, riskLevel)
 		return nil
 	}
 
@@ -61,32 +60,35 @@ func New() *fiber.App {
 	}
 
 	mlPredictor := func(n notification.Notification, metrics airquality.Metrics) (mlclient.PredictionResponse, error) {
-		return mlclient.PredictionResponse{PredictedAQI: float64(metrics.AQI)}, nil
+		return mlclient.PredictionResponse{RiskLevel: "unknown"}, nil
 	}
 
 	if cfg.MLServiceURL != "" {
+		log.Printf("Initializing ML client with URL: %s%s", cfg.MLServiceURL, cfg.MLPredictPath)
 		mlc, err := mlclient.New(cfg.MLServiceURL, cfg.MLPredictPath, nil)
 		if err != nil {
 			log.Printf("ml client init failed: %v", err)
 		} else {
+			log.Println("ML client initialized successfully")
 			mlPredictor = func(n notification.Notification, metrics airquality.Metrics) (mlclient.PredictionResponse, error) {
-				return mlc.Predict(mlclient.PredictionRequest{
-					Latitude:  n.Latitude,
-					Longitude: n.Longitude,
-					Metrics:   metrics,
-				})
+				log.Printf("Sending prediction request to ML service for user %d", n.UserID)
+				return mlc.Predict(mlclient.NewPredictionRequest(
+					n.Latitude,
+					n.Longitude,
+					metrics,
+				))
 			}
 		}
 	} else {
-		log.Println("ML service URL missing; falling back to raw AQI values")
+		log.Println("ML service URL missing; using fallback predictor")
 	}
 
 	alertNotifier := func(n notification.Notification, metrics airquality.Metrics, prediction mlclient.PredictionResponse) error {
-		predicted := prediction.PredictedAQI
-		if predicted == 0 {
-			predicted = float64(metrics.AQI)
+		riskLevel := prediction.RiskLevel
+		if riskLevel == "" {
+			riskLevel = "unknown"
 		}
-		return mailSender(n.Email, int(math.Round(predicted)))
+		return mailSender(n.Email, riskLevel, 0)
 	}
 
 	/* ------------ Handlers ------------ */

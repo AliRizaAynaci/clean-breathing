@@ -2,6 +2,7 @@ package notification
 
 import (
 	"log"
+	"strings"
 	"time"
 
 	"nasa-app/internal/airquality"
@@ -41,16 +42,16 @@ func StartScheduler(
 					continue
 				}
 
-				predictedAQI := prediction.PredictedAQI
-				if predictedAQI == 0 {
-					predictedAQI = float64(metrics.AQI)
-				}
-				if predictedAQI >= float64(n.Threshold) {
+				riskLevel := strings.ToLower(strings.TrimSpace(prediction.RiskLevel))
+				switch riskLevel {
+				case "poor", "hazardous":
 					if err := notifyFunc(n, metrics, prediction); err != nil {
 						log.Println("Notification error:", err)
 					}
-				} else {
-					log.Printf("Prediction below threshold for user %d: %.2f < %d", n.UserID, predictedAQI, n.Threshold)
+				case "good", "moderate":
+					log.Printf("Risk level %s does not require alert for user %d", riskLevel, n.UserID)
+				default:
+					log.Printf("Unknown risk level '%s' for user %d, skipping notification", riskLevel, n.UserID)
 				}
 			}
 
