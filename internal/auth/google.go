@@ -4,12 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"nasa-app/internal/user"
-	"net"
-	neturl "net/url"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -36,6 +32,7 @@ func cfg() (*oauth2.Config, error) {
 		clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
 		redirectURL := os.Getenv("OAUTH_REDIRECT_URL")
 
+		// ✅ Environment variable kontrolü
 		if clientID == "" || clientSecret == "" || redirectURL == "" {
 			initErr = errors.New("missing Google OAuth credentials in environment")
 			return
@@ -117,28 +114,21 @@ func Callback(svc *user.Service) fiber.Handler {
 			"exp":     time.Now().Add(24 * time.Hour).Unix(),
 		}
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		jwtSecret := resolveJWTSecret()
-		signed, err := token.SignedString([]byte(jwtSecret))
+		signed, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
 		if err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "jwt sign: "+err.Error())
 		}
 
-		settings := resolveSessionCookieSettings()
-		cookie := &fiber.Cookie{
+		// Set cookie
+		c.Cookie(&fiber.Cookie{
 			Name:     "session_token",
 			Value:    signed,
+			Domain:   ".clean-breathing-710737072c4d.herokuapp.com",
 			Path:     "/",
 			HTTPOnly: true,
-			SameSite: settings.SameSite,
-			Secure:   settings.Secure,
-			MaxAge:   86400,
-			Expires:  time.Now().Add(24 * time.Hour),
-		}
-		if settings.Domain != "" {
-			cookie.Domain = settings.Domain
-		}
-		log.Printf("Issuing session cookie: domain=%s secure=%t sameSite=%s maxAge=%d", cookie.Domain, cookie.Secure, cookie.SameSite, cookie.MaxAge)
-		c.Cookie(cookie)
+			SameSite: "None",
+			Secure:   true,
+		})
 
 		frontendRedirect := resolveFrontendRedirect()
 		return c.Redirect(frontendRedirect, fiber.StatusSeeOther)
@@ -151,7 +141,7 @@ func resolveFrontendRedirect() string {
 		frontendBase = frontendBase[:idx]
 	}
 	if frontendBase == "" {
-		frontendBase = "http://localhost:3000"
+		frontendBase = "https://clean-breathing-front-six.vercel.app"
 	}
 	frontendRedirect := os.Getenv("FRONTEND_REDIRECT_URL")
 	if frontendRedirect != "" {
@@ -163,128 +153,4 @@ func resolveFrontendRedirect() string {
 		return "/"
 	}
 	return trimmed + "/dashboard"
-}
-
-type sessionCookieSettings struct {
-	Secure   bool
-	SameSite string
-	Domain   string
-}
-
-func resolveSessionCookieSettings() sessionCookieSettings {
-	secure := true
-	frontendURI := strings.TrimSpace(os.Getenv("FRONTEND_URI"))
-
-	if v := strings.TrimSpace(os.Getenv("SESSION_COOKIE_SECURE")); v != "" {
-		if parsed, err := strconv.ParseBool(v); err == nil {
-			secure = parsed
-		}
-	} else if strings.HasPrefix(strings.ToLower(frontendURI), "http://localhost") {
-		secure = false
-	}
-
-	sameSite := normalizeSameSite(os.Getenv("SESSION_COOKIE_SAMESITE"))
-	if sameSite == "" {
-		if secure {
-			sameSite = "None"
-		} else {
-			sameSite = "Lax"
-		}
-	}
-
-	if strings.EqualFold(sameSite, "None") && !secure {
-		log.Printf("SESSION_COOKIE_SAMESITE=none requires Secure=true; forcing SameSite=Lax")
-		sameSite = "Lax"
-	}
-
-	domain := strings.TrimSpace(os.Getenv("SESSION_COOKIE_DOMAIN"))
-	if domain == "" {
-		if derived := deriveCookieDomainFromFrontend(frontendURI); derived != "" {
-			domain = derived
-			log.Printf("Derived session cookie domain=%s from FRONTEND_URI", domain)
-		}
-	}
-
-	settings := sessionCookieSettings{
-		Secure:   secure,
-		SameSite: sameSite,
-		Domain:   domain,
-	}
-
-	log.Printf("Resolved session cookie settings: secure=%t sameSite=%s domain=%s", settings.Secure, settings.SameSite, settings.Domain)
-
-	return settings
-}
-
-func resolveJWTSecret() string {
-	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
-	if secret == "" {
-		log.Println("JWT_SECRET not set; using default insecure development key")
-		secret = "super-secret-change-me"
-	}
-	return secret
-}
-
-func deriveCookieDomainFromFrontend(frontendURI string) string {
-	primary := firstFrontendOrigin(frontendURI)
-	if primary == "" {
-		return ""
-	}
-	if !strings.Contains(primary, "://") {
-		primary = "https://" + primary
-	}
-	parsed, err := neturl.Parse(primary)
-	if err != nil {
-		return ""
-	}
-	host := parsed.Hostname()
-	return deriveCookieDomainFromHost(host)
-}
-
-func firstFrontendOrigin(value string) string {
-	if value == "" {
-		return ""
-	}
-	parts := strings.Split(value, ",")
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.TrimSpace(parts[0])
-}
-
-func deriveCookieDomainFromHost(host string) string {
-	host = strings.TrimSpace(host)
-	if host == "" || strings.EqualFold(host, "localhost") {
-		return ""
-	}
-	if net.ParseIP(host) != nil {
-		return ""
-	}
-	segments := strings.Split(host, ".")
-	if len(segments) <= 1 {
-		return host
-	}
-	if len(segments) == 2 {
-		return host
-	}
-	secondLast := segments[len(segments)-2]
-	if len(segments) >= 3 && len(secondLast) <= 3 {
-		return strings.Join(segments[len(segments)-3:], ".")
-	}
-	return strings.Join(segments[len(segments)-2:], ".")
-}
-
-func normalizeSameSite(v string) string {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "", "default":
-		return ""
-	case "none":
-		return "None"
-	case "lax":
-		return "Lax"
-	case "strict":
-		return "Strict"
-	default:
-		return ""
-	}
 }
